@@ -107,6 +107,10 @@ type Options struct {
 	PrefixJSON []byte
 	// Allows changing of output to XHTML instead of HTML. Default is "text/html"
 	HTMLContentType string
+	// Asset loads and returns the asset for the given name.
+	Asset func(string) ([]byte, error)
+	// AssetNames returns the compiled asset names.
+	AssetNames func() []string
 }
 
 // HTMLOptions is a struct for overriding some rendering Options for specific HTML call
@@ -173,20 +177,41 @@ func compile(options Options) *template.Template {
 	// parse an initial template in case we don't have any
 	template.Must(t.Parse("Martini"))
 
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		r, err := filepath.Rel(dir, path)
-		if err != nil {
-			return err
+	var templateFiles []string
+	if options.Asset != nil && options.AssetNames != nil {
+		for _, asset := range options.AssetNames() {
+			if strings.HasPrefix(asset, dir) {
+				templateFiles = append(templateFiles, asset)
+			}
 		}
+	} else {
+		filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			templateFiles = append(templateFiles, path)
+			return nil
+		})
+	}
 
+	for _, file := range templateFiles {
+		r, err := filepath.Rel(dir, file)
+		if err != nil {
+			return nil
+		}
 		ext := getExt(r)
-
 		for _, extension := range options.Extensions {
 			if ext == extension {
+				var buf []byte
+				var err error
 
-				buf, err := ioutil.ReadFile(path)
-				if err != nil {
-					panic(err)
+				if options.Asset != nil && options.AssetNames != nil {
+					buf, err = options.Asset(file)
+					if err != nil {
+						panic(err)
+					}
+				} else {
+					buf, err = ioutil.ReadFile(file)
+					if err != nil {
+						panic(err)
+					}
 				}
 
 				name := (r[0 : len(r)-len(ext)])
@@ -202,9 +227,7 @@ func compile(options Options) *template.Template {
 				break
 			}
 		}
-
-		return nil
-	})
+	}
 
 	return t
 }
